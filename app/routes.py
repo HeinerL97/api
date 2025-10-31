@@ -1,71 +1,111 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort, g
 import time
 
 api = Blueprint('api', __name__)
 
-# Base de datos en memoria
+# Base de datos en memoria para múltiples recursos.
+# La estructura será: {'nombre_recurso': {'items': {1: data}, 'next_id': 2}}
 database = {}
-id_counter = 1
 
-# Función para simular errores
-def simulate_error():
-    error = request.args.get('error')
-    if error:
-        if error == '400': return jsonify({'error':'400 Bad Request'}),400
-        if error == '401': return jsonify({'error':'401 Unauthorized'}),401
-        if error == '403': return jsonify({'error':'403 Forbidden'}),403
-        if error == '404': return jsonify({'error':'404 Not Found'}),404
-        if error == '422': return jsonify({'error':'422 Unprocessable Entity'}),422
-        if error == '500': return jsonify({'error':'500 Internal Server Error'}),500
-        if error == '502': return jsonify({'error':'502 Bad Gateway'}),502
-        if error == '503': return jsonify({'error':'503 Service Unavailable'}),503
-        if error == '504': return jsonify({'error':'504 Gateway Timeout'}),504
-        if error == 'timeout': 
-            time.sleep(20)
-            return jsonify({'error':'Timeout: Request took too long'}),504
-    return None
+@api.errorhandler(ValueError)
+def handle_value_error(e):
+    """Captura errores de conversión de tipo, como int('texto')."""
+    return jsonify(error="Parámetro 'error' inválido. Debe ser un número."), 400
 
-# ================= CRUD =================
+@api.before_request
+def process_request_hooks():
+    """
+    Se ejecuta antes de cada petición. Maneja la simulación de errores
+    y pre-procesa el cuerpo JSON si existe.
+    """
+    # 1. Simular errores numéricos desde el parámetro URL
+    error_code = request.args.get('error')
+    if error_code:
+        status_code = int(error_code) # Lanza ValueError si no es un número, capturado por el errorhandler
+        error_messages = {
+            400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 
+            410: "Gone", 415: "Unsupported Media Type", 422: "Unprocessable Entity", 500: "Internal Server Error",
+            502: "Bad Gateway", 503: "Service Unavailable", 504: "Gateway Timeout"
+        }
+        description = error_messages.get(status_code, "Unknown Error")
+        abort(status_code, description=description)
 
-@api.route('/items', methods=['POST'])
-def create_item():
-    global id_counter
-    err = simulate_error()
-    if err: return err
-    data = request.json
-    database[id_counter] = data
-    response = {'id': id_counter, 'data': data}
-    id_counter += 1
+    # 2. Pre-procesar el cuerpo JSON y manejar el timeout activado por JSON
+    g.json_data = None
+    if request.is_json:
+        g.json_data = request.get_json()
+
+        # Para POST/PUT, si la descripción es "timeout", simularlo y quitar la clave de control
+        if request.method in ['POST', 'PUT'] and g.json_data.get('description') == 'timeout':
+            control_data = g.json_data.pop('control', None) # Extrae y elimina la clave 'control' del JSON
+
+            if control_data and 'timeout' in control_data:
+                try:
+                    timeout_duration = int(control_data['timeout'])
+                    time.sleep(timeout_duration)
+                    abort(504, description=f"Gateway Timeout: La petición tardó {timeout_duration} segundos.")
+                except (ValueError, TypeError):
+                    abort(400, description="El valor de 'timeout' en la clave 'control' debe ser un número entero.")
+
+# ================= CRUD Dinámico =================
+
+def get_resource(resource_name):
+    """Función auxiliar para obtener o inicializar una colección de recursos."""
+    if resource_name not in database:
+        database[resource_name] = {'items': {}, 'next_id': 1}
+    return database[resource_name]
+
+@api.route('/<resource_name>', methods=['POST'])
+def create_item(resource_name):
+    resource = get_resource(resource_name)
+    if not g.json_data:
+        abort(400, description="Se esperaba un cuerpo JSON.")
+    
+    item_id = resource['next_id']
+    data = g.json_data
+    resource['items'][item_id] = data
+    resource['next_id'] += 1
+    
+    # En lugar de 'data', el estándar RESTful devuelve el objeto creado con su ID.
+    response = data.copy()
+    response['_id'] = item_id
+    
     return jsonify(response), 201
 
-@api.route('/items', methods=['GET'])
-def get_items():
-    err = simulate_error()
-    if err: return err
-    return jsonify(database)
+@api.route('/<resource_name>', methods=['GET'])
+def get_items(resource_name):
+    resource = get_resource(resource_name)
+    # Devolvemos una lista de objetos, cada uno con su ID, como es común en APIs REST.
+    items_list = []
+    for item_id, data in resource['items'].items():
+        item = data.copy()
+        item['_id'] = item_id
+        items_list.append(item)
+    return jsonify(items_list)
 
-@api.route('/items/<int:item_id>', methods=['GET'])
-def get_item(item_id):
-    err = simulate_error()
-    if err: return err
-    if item_id in database:
-        return jsonify({'id': item_id, 'data': database[item_id]})
-    return jsonify({'error':'Item not found'}),404
+@api.route('/<resource_name>/<int:item_id>', methods=['GET'])
+def get_item(resource_name, item_id):
+    resource = get_resource(resource_name)
+    if item_id in resource['items']:
+        item = resource['items'][item_id].copy()
+        item['_id'] = item_id
+        return jsonify(item)
+    abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
-@api.route('/items/<int:item_id>', methods=['PUT'])
-def update_item(item_id):
-    err = simulate_error()
-    if err: return err
-    if item_id in database:
-        database[item_id] = request.json
-        return jsonify({'id': item_id, 'data': database[item_id]})
-    return jsonify({'error':'Item not found'}),404
+@api.route('/<resource_name>/<int:item_id>', methods=['PUT'])
+def update_item(resource_name, item_id):
+    resource = get_resource(resource_name)
+    if not g.json_data:
+        abort(400, description="Se esperaba un cuerpo JSON.")
+    if item_id in resource['items']:
+        resource['items'][item_id] = g.json_data
+        return jsonify({'message': f"Item {item_id} updated successfully."})
+    abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
-@api.route('/items/<int:item_id>', methods=['DELETE'])
-def delete_item(item_id):
-    err = simulate_error()
-    if err: return err
-    if item_id in database:
-        del database[item_id]
-        return jsonify({'message':'Item deleted','id':item_id})
-    return jsonify({'error':'Item not found'}),404
+@api.route('/<resource_name>/<int:item_id>', methods=['DELETE'])
+def delete_item(resource_name, item_id):
+    resource = get_resource(resource_name)
+    if item_id in resource['items']:
+        del resource['items'][item_id]
+        return jsonify({}), 204 # 204 No Content es común para DELETE
+    abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")

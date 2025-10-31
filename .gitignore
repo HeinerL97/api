@@ -1,29 +1,22 @@
-# Entorno virtual
+# Entornos virtuales
 venv/
 env/
+.venv/
 ENV/
 
-# Archivos de Python compilados
+# Archivos de caché y compilados de Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 
-# Archivos temporales
-*.log
-*.tmp
-
-# Configuraciones locales
-*.env
-*.DS_Store
-.idea/
+# Carpetas de configuración de editores
 .vscode/
+.idea/
 
-# Bases de datos locales
+# Carpeta de instancia de Flask (para secretos)
+instance/
+
+# Archivos de base de datos SQLite
+*.db
 *.sqlite3
-
-# Carpeta de migraciones (si usas Flask-Migrate o Alembic)
-migrations/
-
-# Caché de pytest
-.pytest_cache/
