@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, abort, g
 import time
+import math
 
 api = Blueprint('api', __name__)
 
@@ -47,6 +48,12 @@ def process_request_hooks():
                 except (ValueError, TypeError):
                     abort(400, description="El valor de 'timeout' en la clave 'control' debe ser un número entero.")
 
+@api.route('/', methods=['GET'])
+def list_resources():
+    """Devuelve una lista de todos los recursos (colecciones) creados."""
+    resource_names = list(database.keys())
+    return jsonify(resource_names)
+
 # ================= CRUD Dinámico =================
 
 def get_resource(resource_name):
@@ -75,13 +82,40 @@ def create_item(resource_name):
 @api.route('/<resource_name>', methods=['GET'])
 def get_items(resource_name):
     resource = get_resource(resource_name)
-    # Devolvemos una lista de objetos, cada uno con su ID, como es común en APIs REST.
-    items_list = []
+
+    # Leer parámetros de paginación de la URL
+    try:
+        page = int(request.args.get('page', 1))
+        limit = int(request.args.get('limit', 20))
+    except (ValueError, TypeError):
+        abort(400, description="Los parámetros 'page' y 'limit' deben ser números enteros.")
+
+    all_items = []
     for item_id, data in resource['items'].items():
         item = data.copy()
         item['_id'] = item_id
-        items_list.append(item)
-    return jsonify(items_list)
+        all_items.append(item)
+    
+    total_items = len(all_items)
+    total_pages = math.ceil(total_items / limit)
+    
+    # Calcular los índices para la página actual
+    start_index = (page - 1) * limit
+    end_index = start_index + limit
+    
+    paginated_items = all_items[start_index:end_index]
+    
+    response = {
+        "data": paginated_items,
+        "meta": {
+            "total_items": total_items,
+            "per_page": limit,
+            "current_page": page,
+            "total_pages": total_pages
+        }
+    }
+    
+    return jsonify(response)
 
 @api.route('/<resource_name>/<int:item_id>', methods=['GET'])
 def get_item(resource_name, item_id):
@@ -98,8 +132,18 @@ def update_item(resource_name, item_id):
     if not g.json_data:
         abort(400, description="Se esperaba un cuerpo JSON.")
     if item_id in resource['items']:
-        resource['items'][item_id] = g.json_data
+        resource['items'][item_id] = g.json_data # PUT reemplaza el objeto completo
         return jsonify({'message': f"Item {item_id} updated successfully."})
+    abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
+
+@api.route('/<resource_name>/<int:item_id>', methods=['PATCH'])
+def patch_item(resource_name, item_id):
+    resource = get_resource(resource_name)
+    if not g.json_data:
+        abort(400, description="Se esperaba un cuerpo JSON.")
+    if item_id in resource['items']:
+        resource['items'][item_id].update(g.json_data)
+        return jsonify({'message': f"Item {item_id} partially updated successfully."})
     abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
 @api.route('/<resource_name>/<int:item_id>', methods=['DELETE'])
