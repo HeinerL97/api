@@ -1,0 +1,428 @@
+{
+	"info": {
+		"name": "API Dinámica Flask",
+		"description": "Colección completa para probar la API Dinámica con PostgreSQL, incluyendo CRUD, filtros avanzados y simulación de errores.",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "1. Recursos",
+			"item": [
+				{
+					"name": "Listar Recursos Disponibles",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/",
+							"host": ["{{base_url}}"],
+							"path": [""]
+						}
+					}
+				},
+				{
+					"name": "Renombrar Recurso",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{
+								"key": "Content-Type",
+								"value": "application/json"
+							}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"new_name\": \"productos_renombrados\"\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/productos",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"productos"
+							]
+						},
+						"description": "Renombra la colección 'productos' a 'productos_renombrados'."
+					},
+					"response": []
+				},
+				{
+					"name": "Eliminar Recurso (y sus items)",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos",
+							"host": [
+								"{{base_url}}"
+							],
+							"path": [
+								"productos"
+							]
+						},
+						"description": "Elimina la colección 'productos' y todos los items que contiene. ¡Esta acción es irreversible!"
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "2. Productos (CRUD Ejemplo)",
+			"item": [
+				{
+					"name": "Crear Producto (Laptop)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombre\": \"Laptop Gamer\",\n    \"precio\": 1500,\n    \"categoria\": \"computacion\",\n    \"stock\": 10\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/productos",
+							"host": ["{{base_url}}"],
+							"path": ["productos"]
+						}
+					}
+				},
+				{
+					"name": "Crear Producto (Mouse)",
+					"request": {
+						"method": "POST",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombre\": \"Mouse Inalámbrico\",\n    \"precio\": 25,\n    \"categoria\": \"accesorios\",\n    \"stock\": 50\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/productos",
+							"host": ["{{base_url}}"],
+							"path": ["productos"]
+						}
+					}
+				},
+				{
+					"name": "Obtener Todos los Productos",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos",
+							"host": ["{{base_url}}"],
+							"path": ["productos"]
+						}
+					}
+				},
+				{
+					"name": "Obtener Producto por ID",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos/1",
+							"host": ["{{base_url}}"],
+							"path": ["productos", "1"]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Producto (PUT)",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"nombre\": \"Laptop Gamer Pro\",\n    \"precio\": 1800,\n    \"categoria\": \"computacion\",\n    \"stock\": 5\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/productos/1",
+							"host": ["{{base_url}}"],
+							"path": ["productos", "1"]
+						}
+					}
+				},
+				{
+					"name": "Actualizar Parcialmente (PATCH)",
+					"request": {
+						"method": "PATCH",
+						"header": [
+							{"key": "Content-Type", "value": "application/json"}
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n    \"precio\": 1750\n}"
+						},
+						"url": {
+							"raw": "{{base_url}}/productos/1",
+							"host": ["{{base_url}}"],
+							"path": ["productos", "1"]
+						}
+					}
+				},
+				{
+					"name": "Eliminar Producto",
+					"request": {
+						"method": "DELETE",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos/1",
+							"host": ["{{base_url}}"],
+							"path": ["productos", "1"]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "3. Filtros Avanzados",
+			"item": [
+				{
+					"name": "Filtrar por Categoría (Exacto)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos?categoria=computacion",
+							"host": ["{{base_url}}"],
+							"path": ["productos"],
+							"query": [
+								{"key": "categoria", "value": "computacion"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Filtrar por Precio Mayor Que (__gt)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos?precio__gt=1000",
+							"host": ["{{base_url}}"],
+							"path": ["productos"],
+							"query": [
+								{"key": "precio__gt", "value": "1000"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Buscar por Nombre (__ilike)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos?nombre__ilike=mouse",
+							"host": ["{{base_url}}"],
+							"path": ["productos"],
+							"query": [
+								{"key": "nombre__ilike", "value": "mouse"}
+							]
+						}
+					}
+				},
+				{
+					"name": "Paginación (Page & Limit)",
+					"request": {
+						"method": "GET",
+						"header": [],
+						"url": {
+							"raw": "{{base_url}}/productos?page=1&limit=5",
+							"host": ["{{base_url}}"],
+							"path": ["productos"],
+							"query": [
+								{"key": "page", "value": "1"},
+								{"key": "limit", "value": "5"}
+							]
+						}
+					}
+				}
+			]
+		},
+		{
+			"name": "4. Simulación y Errores",
+			"description": "Endpoints para probar el comportamiento de la API bajo condiciones de error, compatibles con todos los métodos HTTP.",
+			"item": [
+				{
+					"name": "Simular Error 404 (Not Found)",
+					"item": [
+						{
+							"name": "GET",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/simulate/error/404",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "404"]
+								}
+							}
+						},
+						{
+							"name": "POST",
+							"request": {
+								"method": "POST",
+								"header": [{"key": "Content-Type", "value": "application/json"}],
+								"body": {"mode": "raw", "raw": "{\"data\":\"test\"}"},
+								"url": {
+									"raw": "{{base_url}}/simulate/error/404",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "404"]
+								}
+							}
+						},
+						{
+							"name": "PUT",
+							"request": {
+								"method": "PUT",
+								"header": [{"key": "Content-Type", "value": "application/json"}],
+								"body": {"mode": "raw", "raw": "{\"data\":\"test\"}"},
+								"url": {
+									"raw": "{{base_url}}/simulate/error/404",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "404"]
+								}
+							}
+						},
+						{
+							"name": "DELETE",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/simulate/error/404",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "404"]
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Simular Error 500 (Server Error)",
+					"item": [
+						{
+							"name": "GET",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/simulate/error/500",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "500"]
+								}
+							}
+						},
+						{
+							"name": "POST",
+							"request": {
+								"method": "POST",
+								"header": [{"key": "Content-Type", "value": "application/json"}],
+								"body": {"mode": "raw", "raw": "{\"data\":\"test\"}"},
+								"url": {
+									"raw": "{{base_url}}/simulate/error/500",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "500"]
+								}
+							}
+						},
+						{
+							"name": "PUT",
+							"request": {
+								"method": "PUT",
+								"header": [{"key": "Content-Type", "value": "application/json"}],
+								"body": {"mode": "raw", "raw": "{\"data\":\"test\"}"},
+								"url": {
+									"raw": "{{base_url}}/simulate/error/500",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "500"]
+								}
+							}
+						},
+						{
+							"name": "DELETE",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/simulate/error/500",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "error", "500"]
+								}
+							}
+						}
+					]
+				},
+				{
+					"name": "Simular Timeout (2s)",
+					"item": [
+						{
+							"name": "GET",
+							"request": {
+								"method": "GET",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/simulate/timeout/2",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "timeout", "2"]
+								}
+							}
+						},
+						{
+							"name": "POST",
+							"request": {
+								"method": "POST",
+								"header": [{"key": "Content-Type", "value": "application/json"}],
+								"body": {"mode": "raw", "raw": "{\"data\":\"test\"}"},
+								"url": {
+									"raw": "{{base_url}}/simulate/timeout/2",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "timeout", "2"]
+								}
+							}
+						},
+						{
+							"name": "PUT",
+							"request": {
+								"method": "PUT",
+								"header": [{"key": "Content-Type", "value": "application/json"}],
+								"body": {"mode": "raw", "raw": "{\"data\":\"test\"}"},
+								"url": {
+									"raw": "{{base_url}}/simulate/timeout/2",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "timeout", "2"]
+								}
+							}
+						},
+						{
+							"name": "DELETE",
+							"request": {
+								"method": "DELETE",
+								"header": [],
+								"url": {
+									"raw": "{{base_url}}/simulate/timeout/2",
+									"host": ["{{base_url}}"],
+									"path": ["simulate", "timeout", "2"]
+								}
+							}
+						}
+					]
+				}
+			]
+		}
+	],
+	"variable": [
+		{
+			"key": "base_url",
+			"value": "http://127.0.0.1:5000",
+			"type": "string"
+		}
+	]
+}

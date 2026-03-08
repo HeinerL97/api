@@ -1,12 +1,24 @@
 from flask import Flask
 from flasgger import Swagger
-from .routes import api
+from flask_sqlalchemy import SQLAlchemy
+from dotenv import load_dotenv
+import os
+
+db = SQLAlchemy()
 
 def create_app():
     """
     Fábrica de aplicaciones Flask. Configura y devuelve la instancia de la aplicación.
     """
     app = Flask(__name__)
+    
+    # Cargar variables de entorno desde el archivo .env
+    load_dotenv()
+
+    # Configuración de Base de Datos (PostgreSQL)
+    # Lee la variable de entorno DATABASE_URL. Si no existe, usa una de respaldo.
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "postgresql://user:password@host/db")
+    app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     # Configuración para mejorar la apariencia de Swagger (UI versión 3)
     app.config['SWAGGER'] = {
@@ -16,29 +28,43 @@ def create_app():
         'displayRequestDuration': True
     }
 
+    db.init_app(app)
+
     # Inicializar Swagger con metadatos personalizados
     Swagger(app, template={
         "info": {
             "title": "Documentación de API",
-            "description": "Documentación interactiva generada automáticamente.",
+            "description": """
+Documentación interactiva generada automáticamente.
+
+### 🔍 Guía de Filtros
+Puedes filtrar los recursos usando parámetros en la URL con sufijos especiales:
+- **Exacto:** `?campo=valor`
+- **Búsqueda:** `?campo__ilike=texto` (insensible a mayúsculas)
+- **Rango:** `?precio__gt=10` (mayor), `__lt` (menor), `__gte`, `__lte`.
+            """,
             "version": "1.0.0"
         },
         "tags": [
             {
-                "name": "resources",
-                "description": "Operaciones para listar las colecciones de recursos disponibles."
+                "name": "1. Gestión de Recursos",
+                "description": "Operaciones para listar, renombrar y eliminar colecciones completas (ej. 'productos', 'usuarios')."
             },
             {
-                "name": "items",
-                "description": "Operaciones CRUD estándar para los items dentro de una colección."
+                "name": "2. Gestión de Items (CRUD)",
+                "description": "Operaciones para los items individuales dentro de una colección. Incluye filtros y paginación."
             },
             {
-                "name": "Testing & Simulation",
-                "description": "Endpoints para probar el comportamiento de la API bajo condiciones de error."
+                "name": "3. Simulación y Pruebas",
+                "description": "Endpoints para probar el comportamiento de la API bajo condiciones de error simuladas."
             }
         ]
     })
 
+    from .routes import api
     app.register_blueprint(api)
+
+    with app.app_context():
+        db.create_all()
 
     return app
