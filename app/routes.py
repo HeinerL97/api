@@ -1,52 +1,30 @@
 from flask import Blueprint, request, jsonify, abort, g
+from app import db
 import time
 import math
 
 api = Blueprint('api', __name__)
 
-# Base de datos en memoria para múltiples recursos.
-# La estructura será: {'nombre_recurso': {'items': {1: data}, 'next_id': 2}}
-database = {}
+# Modelo de base de datos para items dinámicos
+class Item(db.Model):
+    __tablename__ = 'items'
+    id = db.Column(db.Integer, primary_key=True)
+    resource_name = db.Column(db.String(64), index=True, nullable=False)
+    data = db.Column(db.JSON, nullable=False)
 
-@api.errorhandler(ValueError)
-def handle_value_error(e):
-    """Captura errores de conversión de tipo, como int('texto')."""
-    return jsonify(error="Parámetro 'error' inválido. Debe ser un número."), 400
+    def to_dict(self):
+        item = self.data.copy()
+        item['_id'] = self.id
+        return item
 
 @api.before_request
-def process_request_hooks():
+def preprocess_json_body():
     """
-    Se ejecuta antes de cada petición. Maneja la simulación de errores
-    y pre-procesa el cuerpo JSON si existe.
+    Se ejecuta antes de cada petición para pre-procesar el cuerpo JSON si existe.
     """
-    # 1. Simular errores numéricos desde el parámetro URL
-    error_code = request.args.get('error')
-    if error_code:
-        status_code = int(error_code) # Lanza ValueError si no es un número, capturado por el errorhandler
-        error_messages = {
-            400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 
-            410: "Gone", 415: "Unsupported Media Type", 422: "Unprocessable Entity", 500: "Internal Server Error",
-            502: "Bad Gateway", 503: "Service Unavailable", 504: "Gateway Timeout"
-        }
-        description = error_messages.get(status_code, "Unknown Error")
-        abort(status_code, description=description)
-
-    # 2. Pre-procesar el cuerpo JSON y manejar el timeout activado por JSON
     g.json_data = None
     if request.is_json:
         g.json_data = request.get_json()
-
-        # Para POST/PUT, si la descripción es "timeout", simularlo y quitar la clave de control
-        if request.method in ['POST', 'PUT'] and g.json_data.get('description') == 'timeout':
-            control_data = g.json_data.pop('control', None) # Extrae y elimina la clave 'control' del JSON
-
-            if control_data and 'timeout' in control_data:
-                try:
-                    timeout_duration = int(control_data['timeout'])
-                    time.sleep(timeout_duration)
-                    abort(504, description=f"Gateway Timeout: La petición tardó {timeout_duration} segundos.")
-                except (ValueError, TypeError):
-                    abort(400, description="El valor de 'timeout' en la clave 'control' debe ser un número entero.")
 
 @api.route('/', methods=['GET'])
 def list_resources():
@@ -55,7 +33,7 @@ def list_resources():
 
     ---
     tags:
-        - resources
+        - 1. Gestión de Recursos
     responses:
         200:
             description: Lista de nombres de recursos
@@ -64,16 +42,79 @@ def list_resources():
                 items:
                     type: string
     """
-    resource_names = list(database.keys())
+    # Obtener nombres de recursos únicos desde la base de datos
+    resource_names = [r[0] for r in db.session.query(Item.resource_name).distinct().all()]
     return jsonify(resource_names)
 
-# ================= CRUD Dinámico =================
+@api.route('/<resource_name>', methods=['PUT'])
+def rename_resource(resource_name):
+    """
+    Renombra una colección completa de recursos.
+    Actualiza el identificador del recurso para todos los items asociados.
+    ---
+    tags:
+        - 1. Gestión de Recursos
+    parameters:
+        - in: path
+          name: resource_name
+          required: true
+          type: string
+          description: Nombre actual del recurso.
+        - in: body
+          name: body
+          required: true
+          schema:
+            type: object
+            properties:
+                new_name:
+                    type: string
+                    example: "nuevos_productos"
+    responses:
+        200:
+            description: Recurso renombrado exitosamente.
+        400:
+            description: Falta el nuevo nombre en el cuerpo.
+        404:
+            description: Recurso no encontrado.
+    """
+    if not g.json_data or 'new_name' not in g.json_data:
+        abort(400, description="Se requiere un JSON con el campo 'new_name'.")
+    
+    new_name = g.json_data['new_name']
+    
+    updated_count = Item.query.filter_by(resource_name=resource_name).update({Item.resource_name: new_name})
+    db.session.commit()
+    
+    if updated_count == 0:
+        abort(404, description=f"Resource '{resource_name}' not found")
+        
+    return jsonify({"message": f"Resource renamed from '{resource_name}' to '{new_name}'", "count": updated_count})
 
-def get_resource(resource_name):
-    """Función auxiliar para obtener o inicializar una colección de recursos."""
-    if resource_name not in database:
-        database[resource_name] = {'items': {}, 'next_id': 1}
-    return database[resource_name]
+@api.route('/<resource_name>', methods=['DELETE'])
+def delete_resource(resource_name):
+    """
+    Elimina una colección completa y todos sus items.
+    ¡Esta acción es irreversible!
+    ---
+    tags:
+        - 1. Gestión de Recursos
+    parameters:
+        - in: path
+          name: resource_name
+          required: true
+          type: string
+          description: Nombre del recurso (colección) a eliminar.
+    responses:
+        204:
+            description: Recurso y todos sus items eliminados exitosamente.
+    """
+    # The delete() method performs a bulk delete without loading objects into memory.
+    Item.query.filter_by(resource_name=resource_name).delete()
+    db.session.commit()
+    # A 204 No Content response is appropriate for a successful DELETE.
+    return jsonify({}), 204
+
+# ================= CRUD Dinámico =================
 
 @api.route('/<resource_name>', methods=['POST'])
 def create_item(resource_name):
@@ -82,7 +123,7 @@ def create_item(resource_name):
 
     ---
     tags:
-        - items
+        - 2. Gestión de Items (CRUD)
     parameters:
         - in: path
           name: resource_name
@@ -118,29 +159,23 @@ def create_item(resource_name):
                         type: string
                         example: "Se esperaba un cuerpo JSON."
     """
-    resource = get_resource(resource_name)
     if not g.json_data:
         abort(400, description="Se esperaba un cuerpo JSON.")
     
-    item_id = resource['next_id']
-    data = g.json_data
-    resource['items'][item_id] = data
-    resource['next_id'] += 1
+    new_item = Item(resource_name=resource_name, data=g.json_data)
+    db.session.add(new_item)
+    db.session.commit()
     
-    # En lugar de 'data', el estándar RESTful devuelve el objeto creado con su ID.
-    response = data.copy()
-    response['_id'] = item_id
-    
-    return jsonify(response), 201
+    return jsonify(new_item.to_dict()), 201
 
 @api.route('/<resource_name>', methods=['GET'])
 def get_items(resource_name):
     """
-    Obtiene items de una colección con paginación.
+    Obtiene items de una colección con paginación y filtros avanzados.
 
     ---
     tags:
-        - items
+        - 2. Gestión de Items (CRUD)
     parameters:
         - in: path
           name: resource_name
@@ -156,6 +191,18 @@ def get_items(resource_name):
           type: integer
           required: false
           description: Items por página (default 20)
+        - in: query
+          name: (filtro_dinamico)
+          type: string
+          required: false
+          description: >
+            Filtra por campos en el JSON. Usa sufijos para comparaciones avanzadas:
+            - `?campo=valor` (coincidencia exacta)
+            - `?campo__ilike=valor` (contiene el texto, sin distinción de mayúsculas/minúsculas)
+            - `?campo__gt=10` (mayor que)
+            - `?campo__gte=10` (mayor o igual que)
+            - `?campo__lt=10` (menor que)
+            - `?campo__lte=10` (menor o igual que)
     responses:
         200:
             description: Lista paginada de items
@@ -184,8 +231,6 @@ def get_items(resource_name):
                         type: string
                         example: "Los parámetros 'page' y 'limit' deben ser números enteros."
     """
-    resource = get_resource(resource_name)
-
     # Leer parámetros de paginación de la URL
     try:
         page = int(request.args.get('page', 1))
@@ -193,28 +238,59 @@ def get_items(resource_name):
     except (ValueError, TypeError):
         abort(400, description="Los parámetros 'page' y 'limit' deben ser números enteros.")
 
-    all_items = []
-    for item_id, data in resource['items'].items():
-        item = data.copy()
-        item['_id'] = item_id
-        all_items.append(item)
+    # Construir la consulta base
+    query = Item.query.filter_by(resource_name=resource_name)
+
+    # Aplicar filtros dinámicos basados en los parámetros de la URL
+    reserved_params = ['page', 'limit']
+    for key, value in request.args.items():
+        if key in reserved_params:
+            continue
+
+        # Separar el nombre del campo y el operador (ej. 'precio__gt')
+        parts = key.split('__')
+        field_name = parts[0]
+        op = parts[1] if len(parts) > 1 else 'eq'
+
+        # Obtener el campo JSON como texto para poder operar sobre él
+        json_field_as_text = Item.data.op('->>')(field_name)
+
+        if op == 'eq':
+            query = query.filter(json_field_as_text == value)
+        elif op == 'ilike':
+            # Búsqueda de texto parcial, insensible a mayúsculas/minúsculas
+            query = query.filter(json_field_as_text.ilike(f'%{value}%'))
+        elif op in ['gt', 'gte', 'lt', 'lte']:
+            try:
+                # Para comparaciones numéricas, debemos convertir el campo y el valor
+                numeric_value = float(value)
+                json_field_as_numeric = json_field_as_text.as_numeric()
+
+                if op == 'gt':
+                    query = query.filter(json_field_as_numeric > numeric_value)
+                elif op == 'gte':
+                    query = query.filter(json_field_as_numeric >= numeric_value)
+                elif op == 'lt':
+                    query = query.filter(json_field_as_numeric < numeric_value)
+                elif op == 'lte':
+                    query = query.filter(json_field_as_numeric <= numeric_value)
+            except (ValueError, TypeError):
+                # Si el valor no es un número, ignoramos este filtro para evitar un error.
+                pass
+
+    pagination = query.paginate(
+        page=page, per_page=limit, error_out=False
+    )
     
-    total_items = len(all_items)
-    total_pages = math.ceil(total_items / limit)
-    
-    # Calcular los índices para la página actual
-    start_index = (page - 1) * limit
-    end_index = start_index + limit
-    
-    paginated_items = all_items[start_index:end_index]
-    
+    paginated_items = [item.to_dict() for item in pagination.items]
+
     response = {
         "data": paginated_items,
         "meta": {
-            "total_items": total_items,
-            "per_page": limit,
-            "current_page": page,
-            "total_pages": total_pages
+            "total_items": pagination.total,
+            "per_page": pagination.per_page,
+            "current_page": pagination.page,
+            "total_pages": pagination.pages
         }
     }
     
@@ -227,7 +303,7 @@ def get_item(resource_name, item_id):
 
     ---
     tags:
-        - items
+        - 2. Gestión de Items (CRUD)
     parameters:
         - in: path
           name: resource_name
@@ -251,11 +327,9 @@ def get_item(resource_name, item_id):
         404:
             description: Item no encontrado
     """
-    resource = get_resource(resource_name)
-    if item_id in resource['items']:
-        item = resource['items'][item_id].copy()
-        item['_id'] = item_id
-        return jsonify(item)
+    item = Item.query.filter_by(resource_name=resource_name, id=item_id).first()
+    if item:
+        return jsonify(item.to_dict())
     abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
 @api.route('/<resource_name>/<int:item_id>', methods=['PUT'])
@@ -265,7 +339,7 @@ def update_item(resource_name, item_id):
 
     ---
     tags:
-        - items
+        - 2. Gestión de Items (CRUD)
     parameters:
         - in: path
           name: resource_name
@@ -286,7 +360,15 @@ def update_item(resource_name, item_id):
             stock: 50
     responses:
         200:
-            description: Actualización exitosa
+            description: Item actualizado exitosamente. Devuelve el objeto completo.
+            schema:
+                type: object
+            examples:
+              application/json:
+                _id: 1
+                name: "Producto actualizado"
+                price: 25.99
+                stock: 50
         404:
             description: Item no encontrado
         400:
@@ -298,12 +380,14 @@ def update_item(resource_name, item_id):
                         type: string
                         example: "Se esperaba un cuerpo JSON."
     """
-    resource = get_resource(resource_name)
     if not g.json_data:
         abort(400, description="Se esperaba un cuerpo JSON.")
-    if item_id in resource['items']:
-        resource['items'][item_id] = g.json_data # PUT reemplaza el objeto completo
-        return jsonify({'message': f"Item {item_id} updated successfully."})
+    
+    item = Item.query.filter_by(resource_name=resource_name, id=item_id).first()
+    if item:
+        item.data = g.json_data
+        db.session.commit()
+        return jsonify(item.to_dict())
     abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
 @api.route('/<resource_name>/<int:item_id>', methods=['PATCH'])
@@ -313,7 +397,7 @@ def patch_item(resource_name, item_id):
 
     ---
     tags:
-        - items
+        - 2. Gestión de Items (CRUD)
     parameters:
         - in: path
           name: resource_name
@@ -332,7 +416,15 @@ def patch_item(resource_name, item_id):
             price: 22.50
     responses:
         200:
-            description: Actualización parcial exitosa
+            description: Item actualizado parcialmente. Devuelve el objeto completo.
+            schema:
+                type: object
+            examples:
+              application/json:
+                _id: 1
+                name: "Producto de ejemplo"
+                price: 22.50
+                stock: 100
         404:
             description: Item no encontrado
         400:
@@ -344,12 +436,16 @@ def patch_item(resource_name, item_id):
                         type: string
                         example: "Se esperaba un cuerpo JSON."
     """
-    resource = get_resource(resource_name)
     if not g.json_data:
         abort(400, description="Se esperaba un cuerpo JSON.")
-    if item_id in resource['items']:
-        resource['items'][item_id].update(g.json_data)
-        return jsonify({'message': f"Item {item_id} partially updated successfully."})
+    
+    item = Item.query.filter_by(resource_name=resource_name, id=item_id).first()
+    if item:
+        new_data = item.data.copy()
+        new_data.update(g.json_data)
+        item.data = new_data
+        db.session.commit()
+        return jsonify(item.to_dict())
     abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
 @api.route('/<resource_name>/<int:item_id>', methods=['DELETE'])
@@ -359,7 +455,7 @@ def delete_item(resource_name, item_id):
 
     ---
     tags:
-        - items
+        - 2. Gestión de Items (CRUD)
     parameters:
         - in: path
           name: resource_name
@@ -375,10 +471,11 @@ def delete_item(resource_name, item_id):
         404:
             description: Item no encontrado
     """
-    resource = get_resource(resource_name)
-    if item_id in resource['items']:
-        del resource['items'][item_id]
-        return jsonify({}), 204 # 204 No Content es común para DELETE
+    item = Item.query.filter_by(resource_name=resource_name, id=item_id).first()
+    if item:
+        db.session.delete(item)
+        db.session.commit()
+        return jsonify({}), 204
     abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
 # ================= Testing & Simulation =================
@@ -390,7 +487,7 @@ def simulate_error(status_code):
     Este endpoint permite probar cómo una aplicación cliente reacciona a diferentes códigos de error HTTP.
     ---
     tags:
-        - Testing & Simulation
+        - 3. Simulación y Pruebas
     parameters:
         - in: path
           name: status_code
@@ -418,7 +515,7 @@ def simulate_timeout(duration):
     Este endpoint bloquea la ejecución durante un número de segundos y luego devuelve un error 504 Gateway Timeout.
     ---
     tags:
-        - Testing & Simulation
+        - 3. Simulación y Pruebas
     parameters:
         - in: path
           name: duration
