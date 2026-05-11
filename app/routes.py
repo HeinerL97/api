@@ -1,9 +1,15 @@
 from flask import Blueprint, request, jsonify, abort, g
 from app import db
 import time
-import math
+import logging
+import os
 
 api = Blueprint('api', __name__)
+logger = logging.getLogger(__name__)
+
+# Constantes para la simulación de latencia global (se pueden configurar vía .env)
+DEFAULT_GLOBAL_DELAY_SECONDS = float(os.getenv("DEFAULT_GLOBAL_DELAY", 0.5))
+MAX_GLOBAL_DELAY_SECONDS = float(os.getenv("MAX_GLOBAL_DELAY", 120))
 
 # Modelo de base de datos para items dinámicos
 class Item(db.Model):
@@ -18,13 +24,27 @@ class Item(db.Model):
         return item
 
 @api.before_request
-def preprocess_json_body():
+def handle_global_delay_and_json_body():
     """
-    Se ejecuta antes de cada petición para pre-procesar el cuerpo JSON si existe.
+    Maneja la latencia simulada global (parámetro __delay) y pre-procesa el cuerpo JSON.
     """
+    # 1. Manejo de Latencia
+    requested_delay = request.args.get('__delay', type=float)
+    
+    if requested_delay is not None:
+        # Prioridad: Parámetro __delay explícito (permite 0 para desactivar)
+        actual_delay = max(0.0, min(requested_delay, MAX_GLOBAL_DELAY_SECONDS))
+        if actual_delay > 0:
+            time.sleep(actual_delay)
+    elif not request.path.startswith('/simulate/'):
+        # Latencia base por defecto solo para rutas normales (no simulación)
+        if DEFAULT_GLOBAL_DELAY_SECONDS > 0:
+            time.sleep(DEFAULT_GLOBAL_DELAY_SECONDS)
+
+    # 2. Procesamiento de JSON
     g.json_data = None
     if request.is_json:
-        g.json_data = request.get_json()
+        g.json_data = request.get_json(silent=True)
 
 @api.route('/', methods=['GET'])
 def list_resources():
@@ -235,8 +255,10 @@ def get_items(resource_name):
     try:
         page = int(request.args.get('page', 1))
         limit = int(request.args.get('limit', 20))
+        if page < 1 or limit < 1:
+            raise ValueError()
     except (ValueError, TypeError):
-        abort(400, description="Los parámetros 'page' y 'limit' deben ser números enteros.")
+        abort(400, description="Los parámetros 'page' y 'limit' deben ser números enteros positivos.")
 
     # Construir la consulta base
     query = Item.query.filter_by(resource_name=resource_name)
@@ -264,7 +286,7 @@ def get_items(resource_name):
             try:
                 # Para comparaciones numéricas, debemos convertir el campo y el valor
                 numeric_value = float(value)
-                json_field_as_numeric = json_field_as_text.as_numeric()
+                json_field_as_numeric = db.cast(json_field_as_text, db.Float)
 
                 if op == 'gt':
                     query = query.filter(json_field_as_numeric > numeric_value)
@@ -443,7 +465,10 @@ def patch_item(resource_name, item_id):
     if item:
         new_data = item.data.copy()
         new_data.update(g.json_data)
+        # Forzamos a SQLAlchemy a detectar el cambio en el campo JSON
+        from sqlalchemy.orm.attributes import flag_modified
         item.data = new_data
+        flag_modified(item, "data")
         db.session.commit()
         return jsonify(item.to_dict())
     abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
@@ -508,7 +533,7 @@ def simulate_error(status_code):
     description = error_messages.get(status_code, f"Simulated Error {status_code}")
     abort(status_code, description=description)
 
-@api.route('/simulate/timeout/<int:duration>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+@api.route('/simulate/timeout/<float:duration>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
 def simulate_timeout(duration):
     """
     Simula un timeout en la respuesta del servidor.
@@ -520,7 +545,7 @@ def simulate_timeout(duration):
         - in: path
           name: duration
           required: true
-          type: integer
+          type: number
           description: El número de segundos que la petición debe esperar antes de fallar.
     responses:
         504:
@@ -534,5 +559,41 @@ def simulate_timeout(duration):
     """
     if duration < 0:
         abort(400, description="La duración del timeout debe ser un número no negativo.")
-    time.sleep(duration)
-    abort(504, description=f"Gateway Timeout: La petición tardó {duration} segundos.")
+    
+    actual_duration = min(duration, MAX_GLOBAL_DELAY_SECONDS)
+    time.sleep(actual_duration)
+    
+    return jsonify({"error": f"Gateway Timeout: La petición tardó {actual_duration:.2f} segundos."}), 504
+
+@api.route('/simulate/delay/<float:duration>', methods=['GET', 'POST', 'PUT', 'PATCH', 'DELETE'])
+def simulate_delay(duration):
+    """
+    Simula un retraso exitoso (latencia) en la respuesta.
+    ---
+    tags:
+        - 3. Simulación y Pruebas
+    parameters:
+        - in: path
+          name: duration
+          required: true
+          type: number
+          description: Segundos de retraso.
+    responses:
+        200:
+            description: Respuesta exitosa tras el retraso.
+            schema:
+                type: object
+                properties:
+                    message:
+                        type: string
+                        example: "Respuesta completada tras 3.00 segundos."
+    """
+    if duration < 0:
+        abort(400, description="La duración debe ser un número no negativo.")
+    
+    actual_duration = min(duration, MAX_GLOBAL_DELAY_SECONDS)
+    time.sleep(actual_duration)
+    return jsonify({
+        "message": f"Respuesta completada tras {actual_duration:.2f} segundos.",
+        "status": "success"
+    })
