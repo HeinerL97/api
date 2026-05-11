@@ -132,7 +132,7 @@ def delete_resource(resource_name):
     Item.query.filter_by(resource_name=resource_name).delete()
     db.session.commit()
     # A 204 No Content response is appropriate for a successful DELETE.
-    return jsonify({}), 204
+    return '', 204
 
 # ================= CRUD Dinámico =================
 
@@ -500,7 +500,7 @@ def delete_item(resource_name, item_id):
     if item:
         db.session.delete(item)
         db.session.commit()
-        return jsonify({}), 204
+        return '', 204
     abort(404, description=f"Item with id {item_id} not found in resource '{resource_name}'")
 
 # ================= Testing & Simulation =================

@@ -1,8 +1,9 @@
-from flask import Flask
+from flask import Flask, jsonify
 from flasgger import Swagger
 from flask_sqlalchemy import SQLAlchemy
 from dotenv import load_dotenv
 import os
+from werkzeug.exceptions import HTTPException
 
 db = SQLAlchemy()
 
@@ -16,8 +17,12 @@ def create_app():
     load_dotenv()
 
     # Configuración de Base de Datos (PostgreSQL)
-    # Lee la variable de entorno DATABASE_URL. Si no existe, usa una de respaldo.
-    app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "postgresql://user:password@host/db")
+    # Normalización para compatibilidad con SQLAlchemy 1.4+ y diversos hostings
+    db_url = os.getenv("DATABASE_URL", "postgresql://user:password@host/db")
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    
+    app.config["SQLALCHEMY_DATABASE_URI"] = db_url
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
     # Configuración para mejorar la apariencia de Swagger (UI versión 3)
@@ -63,6 +68,18 @@ Puedes filtrar los recursos usando parámetros en la URL con sufijos especiales:
 
     from .routes import api
     app.register_blueprint(api)
+
+    @app.errorhandler(HTTPException)
+    def handle_exception(e):
+        """Asegura que todos los errores HTTP devuelvan JSON en lugar de HTML."""
+        response = e.get_response()
+        response.data = jsonify({
+            "code": e.code,
+            "name": e.name,
+            "description": e.description,
+        }).data
+        response.content_type = "application/json"
+        return response
 
     with app.app_context():
         db.create_all()
